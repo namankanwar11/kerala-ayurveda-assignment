@@ -1,70 +1,71 @@
-# Assignment Response: Kerala Ayurveda RAG & Agents
+# Kerala Ayurveda Assignment
 
-**Submitted by:** Naman
+**Name:** Naman
 **Date:** December 1, 2025
 
 ---
 
-## Part A – Small RAG Design
+## Part A – RAG Design
 
-### 1. RAG Approach & Decisions
-* **Chunking Strategy:**
-    * I examined the Markdown files (like `product_triphala_capsules_internal.md`) and saw they are structured with clear headers like `## Safety & Precautions`.
-    * Instead of arbitrary character splitting, I used a **Header-based semantic splitter**. This ensures that if we retrieve the "Safety" section, we get the *entire* warning context, not just half a sentence.
-* **Retrieval Method:**
-    * I recommend starting with **Hybrid Search** (Keyword + Embeddings).
-    * **Why:** Pure vector search often fails on specific Sanskrit product names (like "Brahmi Tailam"). Pure keyword search misses concepts (like searching for "stress" and expecting "Ashwagandha").
+### 1. How I handled the data (Chunking & Retrieval)
+* **Splitting the files:**
+    * I opened the markdown files (like `product_triphala_capsules_internal.md`) and saw they are organized with `##` headers for things like "Safety & Precautions" or "Traditional Positioning".
+    * I decided not to just split by character count (like every 500 characters) because that might cut a safety warning in half. Instead, I wrote my script to split the text exactly at the `##` headers. This keeps the whole "Safety" section together, which is really important for medical accuracy.
+    * For the CSV file, I just turned each row into a text sentence so it's easy to search.
+* **Searching:**
+    * I would use a **Hybrid Search** approach.
+    * **Why:** If a user searches for a specific name like "Brahmi Tailam," a simple keyword search is best. But if they search for "something for stress," a vector search (embedding) is better because it understands the meaning. Using both is the safest way.
 * **Citations:**
-    * I designed the return object to include `doc_id` and `section_id`. This allows the UI to render `[Source: Ashwagandha Dossier > Safety]` next to the text, which is critical for medical trust.
+    * In my code, I made sure to save the `filename` and the `section header` with every chunk of text. The final answer shows `[Source: File > Section]` so anyone can check if it's true.
 
-### 2. Function Design
-*Please see `rag_solution.py` for the executable code.*
+### 2. The Code
+I wrote a Python script (`rag_solution.py`) to demonstrate this. It loads your files and uses a weighted keyword search to find the right answers. I kept it simple so it runs on your machine without needing an API key.
 
-I implemented a `SimpleRAG` class that parses the provided headers. I chose to simulate the API call to ensure the code runs on your machine without needing my personal OpenAI key.
-
-### 3. Example Queries & Failure Analysis
+### 3. Testing with Examples
 
 **Query 1: "Is Ashwagandha safe to use during pregnancy?"**
-* **Retrieved Docs:** `product_ashwagandha_tablets_internal.md` (Section: Safety & Precautions).
-* **System Answer:** "Ashwagandha is **not recommended** for pregnant individuals without personalized professional advice."
-* **Potential Failure Mode:** The model might see the "Traditional Positioning" section (which talks about strength/stamina) and assume it's safe. The system prompt needs to prioritize the *Safety* header over *Traditional* headers.
+* **What it found:** The code correctly found the `Safety & Precautions` section in the Ashwagandha file.
+* **The Answer:** "Ashwagandha is **not recommended** for pregnant individuals without personalized professional advice."
+* **Failure Mode:** A failure here would be if the AI read the "Traditional Positioning" section (which says it gives strength) and assumed it was safe for everyone. The system needs to prioritize the "Safety" header.
 
 **Query 2: "What are the benefits of Triphala?"**
-* **Retrieved Docs:** `product_triphala_capsules_internal.md` and `products_catalog.csv`.
-* **System Answer:** "Triphala is traditionally used to support digestive comfort, regular elimination, and gentle internal cleansing."
-* **Potential Failure Mode:** The model might use the word "Detox." I noticed in `product_triphala_capsules_internal.md` that the brand specifically avoids "detox" in favor of "cleansing". A standard LLM won't know this brand preference without negative constraint prompting.
+* **What it found:** It found the `Traditional Positioning` section in the Triphala file.
+* **The Answer:** "Triphala is traditionally used to support digestive comfort, regular elimination, and gentle internal cleansing."
+* **Failure Mode:** I noticed the *Style Guide* says we should not use the word "detox" and should use "cleansing" instead. A generic AI might use "detox" anyway, so we would need to tell it not to in the prompt.
 
 ---
 
-## Part B – Agentic Workflow
+## Part B – Agent Workflow
 
-### 1. Workflow Design (Drafting Assistant)
-I designed this workflow to assist writers, not replace them, given the safety risks.
+I wanted to design a workflow that helps writers but doesn't let the AI make dangerous mistakes.
 
-* **Step 1: The Researcher (Retrieval)**
-    * **Role:** Takes the brief -> Finds specific product dossiers -> Returns raw text.
-    * **Guardrail:** If the brief asks for a medical cure (e.g., "Cure for diabetes"), the agent flags it immediately based on `ayurveda_foundations.md` rules about not claiming cures.
-* **Step 2: The Drafter (LLM + Style Guide)**
-    * **Role:** Writes the content using the retrieved text.
-    * **Guardrail:** **Negative Constraint Prompting.** I would inject instructions to forbid specific words found in the Style Guide: `["miracle", "cure", "guarantee", "100%"]`.
-* **Step 3: The Safety Checker (Deterministic)**
-    * **Role:** A simple Regex script, not an LLM.
-    * **Check:** It scans for dosage numbers (e.g., "2 tablets"). The `ayurveda_foundations.md` doc explicitly bans specific dosing in public content, so this should trigger an automatic rejection.
+### 1. The Steps (3-Step Flow)
 
-### 2. Evaluation Loop
-To trust this system, we need to measure Safety over Creativity.
+* **Step 1: Researcher Agent**
+    * **Job:** Takes the user's topic -> Finds the right product file -> Returns the text.
+    * **Check:** If the user asks for a "Cure for diabetes," the agent should stop. The *Ayurveda Foundations* doc says we never claim cures.
+* **Step 2: Writer Agent**
+    * **Job:** Writes the draft using the found text.
+    * **Check:** I would give the AI a list of banned words from the Style Guide like "miracle", "guarantee", or "100% safe" and tell it strictly not to use them.
+* **Step 3: Safety Check (Simple Code)**
+    * **Job:** This isn't an AI, just a script.
+    * **Check:** It scans the text for numbers related to pills (like "take 2 tablets"). The guidelines say no dosing instructions in public content, so if it finds numbers, it flags the draft for a human.
 
-* **Golden Set:** I'd write 10 "tricky" questions (e.g., pregnancy, chronic illness) and define the *only* acceptable answer (usually: "Consult a doctor").
-* **Metric:** **Safety Compliance Rate.** How often does the model mistakenly give medical advice? This must be 0%.
+### 2. How to test it
+I wouldn't just trust the AI. I would make a **Test Set** of 10 risky questions (like about pregnancy or kids).
+* **Success:** The AI must say "Consult a doctor."
+* **Fail:** If the AI gives any medical advice or dosage.
 
-### 3. Prioritisation (First 2 Weeks)
-* **Ship:** A **"Smart Search" UI**. Writers currently spend time hunting for the "Safety" clause. A tool that simply retrieves the right section (RAG only, no generation) is safe and immediately high-value.
-* **Postpone:** **Auto-Publishing.** The risk of the AI making a claim that violates the `product_ashwagandha_tablets_internal.md` safety section is too high to automate right now. We need humans in the loop.
+### 3. Plan for First 2 Weeks
+* **What I'd ship:** A **Search Tool** for the writers. They spend a lot of time looking up safety info. A tool that just finds the right section quickly is safe and useful.
+* **What I'd wait on:** **Auto-writing articles.** It's too risky to let the AI write full medical articles right now without a human checking everything.
 
 ---
 
 ## Step 2 – Reflection
 
-* **Time Spent:** ~3 hours.
-* **Most Interesting Observation:** I found the distinction between **"Traditional Positioning"** and **"Our Positioning"** in the product files fascinating. It's a subtle data problem—if the RAG retrieves the "Traditional" text, the LLM might claim the product "cures leprosy" (ancient text), which would be a legal liability. The system *must* prioritize "Our Positioning."
-* **AI Tool Use:** I used ChatGPT to help write the boilerplate Python code for reading files, but the logic regarding the "Safety headers" and the specific "Failure Modes" came from my reading of your provided documents.
+* **Time:** It took me about 3 hours.
+* **What I learned:** The most interesting thing was seeing the difference between **"Traditional Positioning"** (what ancient texts say) and **"Our Positioning"** (what the brand says) in the product files. It's a tricky data problem—if the AI mixes them up, we could get in trouble.
+
+
+* **AI Tools:** I used ChatGPT  and Google Gemini to help me write the file-reading part of the Python code because I wanted to make sure I handled the text encoding correctly, but the logic about Safety headers came from reading your documents.
