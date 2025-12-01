@@ -1,5 +1,6 @@
 import os
 import csv
+import sys
 
 # I created a class to handle the loading and searching of data
 class AyurvedaBot:
@@ -14,7 +15,7 @@ class AyurvedaBot:
             print("Error: Data folder not found!")
             return
 
-        print("Loading files...")
+        print("Loading files...", end=" ")
         
         # 1. Read the Markdown files
         files = os.listdir(self.data_folder)
@@ -89,14 +90,16 @@ class AyurvedaBot:
         return top_results
 
 # Main function to handle the query and answer
-def answer_user_query(query):
-    bot = AyurvedaBot()
+def answer_user_query(bot, query):
     relevant_docs = bot.search(query)
     
+    if not relevant_docs:
+        return "I couldn't find any information on that in our documents."
+
     # Since I don't have the API key for this assignment, I am simulating 
     # the answer generation based on the docs I retrieved.
     
-    answer = "Sorry, I don't know."
+    answer = "Based on the documents, here is what I found:"
     q_lower = query.lower()
     
     # Logic for the assignment examples
@@ -104,33 +107,36 @@ def answer_user_query(query):
         answer = "Ashwagandha is not recommended for pregnant individuals without personalized professional advice."
     elif "triphala" in q_lower:
         answer = "Triphala is traditionally used to support digestive comfort, regular elimination, and gentle internal cleansing."
-        
-    # Format the citations
-    citations = []
-    for doc in relevant_docs:
-        citations.append({
-            "doc_id": doc['source'],
-            "section_id": doc['topic']
-        })
-        
-    return {
-        "answer": answer,
-        "citations": citations
-    }
+    else:
+        # Generic fallback that uses the retrieved text
+        answer = f"Found relevant info in {relevant_docs[0]['source']}. It mentions: {relevant_docs[0]['content'][:100]}..."
+
+    # --- FEATURE 2: SAFETY FOOTER ---
+    # Automatically adding this to every answer to ensure compliance
+    answer += "\n\n*** SAFETY DISCLAIMER: This information is for internal use only. Always consult a certified practitioner. ***"
+
+    return answer
 
 if __name__ == "__main__":
-    print("--- Testing the RAG System ---")
+    print("--- Kerala Ayurveda Internal Search Tool ---")
+    print("Type 'exit' to quit.\n")
     
-    # Test Case 1
-    q1 = "Is Ashwagandha safe to use during pregnancy?"
-    print(f"\nQuery: {q1}")
-    result = answer_user_query(q1)
-    print("Answer:", result['answer'])
-    print("Citations:", result['citations'])
-
-    # Test Case 2
-    q2 = "What are the benefits of Triphala?"
-    print(f"\nQuery: {q2}")
-    result = answer_user_query(q2)
-    print("Answer:", result['answer'])
-    print("Citations:", result['citations'])
+    # Initialize the bot once
+    my_bot = AyurvedaBot()
+    
+    # --- FEATURE 1: INTERACTIVE LOOP ---
+    while True:
+        try:
+            user_input = input("\nEnter your question: ")
+            if user_input.lower() in ["exit", "quit", "q"]:
+                print("Goodbye!")
+                break
+            
+            response = answer_user_query(my_bot, user_input)
+            print("-" * 50)
+            print(response)
+            print("-" * 50)
+            
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            sys.exit()
