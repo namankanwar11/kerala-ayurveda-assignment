@@ -160,11 +160,12 @@ if user_input:
     with st.chat_message("assistant"):
         st.markdown(response_text)
         
-        # Debug option to see what the system actually found
+        # --- NEW FEATURE: View Source Expander ---
+        # This allows the user to click and see the exact text we found
         if len(found_docs) > 0:
-            with st.expander("See retrieved text (Debug)"):
+            with st.expander("🔎 View Retrieved Text (Debug)"):
                 for doc in found_docs:
-                    st.text(f"From: {doc['source']}")
+                    st.markdown(f"**From:** {doc['source']}")
                     st.text(doc['text'])
                     st.divider()
 
