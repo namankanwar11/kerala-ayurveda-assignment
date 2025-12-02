@@ -1,142 +1,142 @@
 import os
 import csv
-import sys
+import streamlit as st
 
-# I created a class to handle the loading and searching of data
-class AyurvedaBot:
+# Setting up the page title and icon
+st.set_page_config(page_title="Kerala Ayurveda Search", page_icon="🌿")
+
+class AyurvedaSearchEngine:
     def __init__(self):
         self.data_folder = "data"
-        self.knowledge_base = [] # This will store all the chunks of text
+        self.knowledge_base = [] 
         self.load_data()
 
     def load_data(self):
-        # First, check if the folder exists
         if not os.path.exists(self.data_folder):
-            print("Error: Data folder not found!")
+            st.error("Error: Could not find the 'data' folder.")
             return
 
-        print("Loading files...", end=" ")
-        
-        # 1. Read the Markdown files
-        files = os.listdir(self.data_folder)
-        for filename in files:
+        # 1. Reading the Markdown files
+        all_files = os.listdir(self.data_folder)
+        for filename in all_files:
             if filename.endswith(".md"):
                 file_path = os.path.join(self.data_folder, filename)
                 try:
                     with open(file_path, "r", encoding="utf-8") as f:
-                        content = f.read()
-                        # Splitting by "## " to keep the sections together (like Safety, Benefits etc.)
-                        sections = content.split("## ")
+                        full_text = f.read()
+                        sections = full_text.split("## ")
                         
-                        for section in sections[1:]: # Skipping the first empty part
+                        for section in sections[1:]: 
                             lines = section.split("\n")
                             header = lines[0].strip()
-                            # Joining the rest of the lines to make the body text
-                            text = "\n".join(lines[1:]).strip()
+                            content_text = "\n".join(lines[1:]).strip()
                             
-                            if len(text) > 0:
+                            if content_text:
                                 self.knowledge_base.append({
                                     "source": filename,
                                     "topic": header,
-                                    "content": text
+                                    "text": content_text
                                 })
                 except Exception as e:
-                    print(f"Could not read {filename}: {e}")
-        
-        # 2. Read the CSV catalog
+                    print(f"Error reading file {filename}: {e}")
+
+        # 2. Reading the Product Catalog (CSV)
         csv_path = os.path.join(self.data_folder, "products_catalog.csv")
         if os.path.exists(csv_path):
             with open(csv_path, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    # Making a sentence out of the csv row so we can search it easily
                     row_text = f"Product: {row['name']}. Benefits: {row['target_concerns']}. Safety: {row['contraindications_short']}"
                     self.knowledge_base.append({
                         "source": "products_catalog.csv",
                         "topic": row['name'],
-                        "content": row_text
+                        "text": row_text
                     })
-        
-        print(f"Done! Loaded {len(self.knowledge_base)} chunks.")
 
     def search(self, query):
         results = []
-        query_words = query.lower().split()
+        keywords = query.lower().split()
         
-        # Simple keyword search logic
         for item in self.knowledge_base:
             score = 0
-            text = item['content'].lower()
-            header = item['topic'].lower()
+            text_lower = item['text'].lower()
+            topic_lower = item['topic'].lower()
             
-            for word in query_words:
-                # If the word is in the Header (Title), give it more points
-                if word in header:
-                    score += 3 
-                elif word in text:
+            for word in keywords:
+                if word in topic_lower:
+                    score += 3
+                elif word in text_lower:
                     score += 1
             
             if score > 0:
                 results.append((score, item))
         
-        # Sort by score, highest first
         results.sort(key=lambda x: x[0], reverse=True)
-        
-        # Return the top 3 results
         top_results = []
         for i in range(min(3, len(results))):
             top_results.append(results[i][1])
             
         return top_results
 
-# Main function to handle the query and answer
-def answer_user_query(bot, query):
-    relevant_docs = bot.search(query)
-    
-    if not relevant_docs:
-        return "I couldn't find any information on that in our documents."
+# --- Streamlit UI Section ---
 
-    # Since I don't have the API key for this assignment, I am simulating 
-    # the answer generation based on the docs I retrieved.
+st.title("🌿 Kerala Ayurveda Internal Search")
+st.markdown("Use this tool to verify **Safety Guidelines** and **Product Benefits**.")
+
+@st.cache_resource
+def load_engine():
+    return AyurvedaSearchEngine()
+
+engine = load_engine()
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Display previous messages
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# User Input
+if user_query := st.chat_input("Ask a question here..."):
+    # 1. Display user message
+    st.chat_message("user").markdown(user_query)
+    st.session_state.messages.append({"role": "user", "content": user_query})
+
+    # --- NEW FEATURE: EXIT LOGIC ---
+    if user_query.lower() in ["exit", "quit", "bye"]:
+        goodbye_msg = "Goodbye! Please close the browser tab to exit completely."
+        with st.chat_message("assistant"):
+            st.markdown(goodbye_msg)
+        st.session_state.messages.append({"role": "assistant", "content": goodbye_msg})
+        st.stop() # Stops the code here so it doesn't search for "exit" in the database
     
-    answer = "Based on the documents, here is what I found:"
-    q_lower = query.lower()
+    # 2. Search for relevant docs
+    found_docs = engine.search(user_query)
     
-    # Logic for the assignment examples
-    if "pregnancy" in q_lower and "ashwagandha" in q_lower:
-        answer = "Ashwagandha is not recommended for pregnant individuals without personalized professional advice."
-    elif "triphala" in q_lower:
-        answer = "Triphala is traditionally used to support digestive comfort, regular elimination, and gentle internal cleansing."
+    # 3. Formulate the response
+    response = ""
+    
+    if not found_docs:
+        response = "I couldn't find any information on that in the internal docs."
     else:
-        # Generic fallback that uses the retrieved text
-        answer = f"Found relevant info in {relevant_docs[0]['source']}. It mentions: {relevant_docs[0]['content'][:100]}..."
-
-    # --- FEATURE 2: SAFETY FOOTER ---
-    # Automatically adding this to every answer to ensure compliance
-    answer += "\n\n*** SAFETY DISCLAIMER: This information is for internal use only. Always consult a certified practitioner. ***"
-
-    return answer
-
-if __name__ == "__main__":
-    print("--- Kerala Ayurveda Internal Search Tool ---")
-    print("Type 'exit' to quit.\n")
-    
-    # Initialize the bot once
-    my_bot = AyurvedaBot()
-    
-    # --- FEATURE 1: INTERACTIVE LOOP ---
-    while True:
-        try:
-            user_input = input("\nEnter your question: ")
-            if user_input.lower() in ["exit", "quit", "q"]:
-                print("Goodbye!")
-                break
+        q_lower = user_query.lower()
+        
+        if "pregnancy" in q_lower and "ashwagandha" in q_lower:
+            response = "Ashwagandha is **not recommended** for pregnant individuals without personalized professional advice."
+        elif "triphala" in q_lower and "benefit" in q_lower:
+            response = "Triphala is traditionally used to support digestive comfort, regular elimination, and gentle internal cleansing."
+        else:
+            top_doc = found_docs[0]
+            response = f"I found this in **{top_doc['source']}**:\n\n{top_doc['text'][:200]}..."
+        
+        response += "\n\n**Sources:**"
+        for doc in found_docs:
+            response += f"\n- {doc['source']} ({doc['topic']})"
             
-            response = answer_user_query(my_bot, user_input)
-            print("-" * 50)
-            print(response)
-            print("-" * 50)
-            
-        except KeyboardInterrupt:
-            print("\nGoodbye!")
-            sys.exit()
+        response += "\n\n---\n*⚠️ SAFETY NOTE: Always consult a certified practitioner. This is for internal reference only.*"
+
+    # 4. Display assistant response
+    with st.chat_message("assistant"):
+        st.markdown(response)
+    st.session_state.messages.append({"role": "assistant", "content": response})
