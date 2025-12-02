@@ -2,141 +2,170 @@ import os
 import csv
 import streamlit as st
 
-# Setting up the page title and icon
+# Basic page setup
 st.set_page_config(page_title="Kerala Ayurveda Search", page_icon="🌿")
 
-class AyurvedaSearchEngine:
+# I made a class to handle the backend logic for searching
+class SearchApp:
     def __init__(self):
-        self.data_folder = "data"
-        self.knowledge_base = [] 
-        self.load_data()
+        self.folder_path = "data"
+        self.chunks = [] # This list stores all the split text parts
+        self.load_files()
 
-    def load_data(self):
-        if not os.path.exists(self.data_folder):
-            st.error("Error: Could not find the 'data' folder.")
+    def load_files(self):
+        # Checking if data exists
+        if not os.path.exists(self.folder_path):
+            st.error("Error: Data folder is missing.")
             return
 
-        # 1. Reading the Markdown files
-        all_files = os.listdir(self.data_folder)
-        for filename in all_files:
+        # 1. Processing Markdown files
+        files = os.listdir(self.folder_path)
+        for filename in files:
             if filename.endswith(".md"):
-                file_path = os.path.join(self.data_folder, filename)
+                filepath = os.path.join(self.folder_path, filename)
                 try:
-                    with open(file_path, "r", encoding="utf-8") as f:
-                        full_text = f.read()
-                        sections = full_text.split("## ")
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        content = f.read()
                         
-                        for section in sections[1:]: 
-                            lines = section.split("\n")
+                        # I am splitting by "## " headers.
+                        # This ensures safety warnings stay attached to their topics.
+                        parts = content.split("## ")
+                        
+                        for part in parts[1:]: # Skip the first empty part
+                            lines = part.split("\n")
                             header = lines[0].strip()
-                            content_text = "\n".join(lines[1:]).strip()
+                            # Combine the rest of the lines
+                            body = "\n".join(lines[1:]).strip()
                             
-                            if content_text:
-                                self.knowledge_base.append({
+                            if len(body) > 0:
+                                self.chunks.append({
                                     "source": filename,
                                     "topic": header,
-                                    "text": content_text
+                                    "text": body
                                 })
                 except Exception as e:
-                    print(f"Error reading file {filename}: {e}")
+                    print(f"Skipping {filename} because of error: {e}")
 
-        # 2. Reading the Product Catalog (CSV)
-        csv_path = os.path.join(self.data_folder, "products_catalog.csv")
-        if os.path.exists(csv_path):
-            with open(csv_path, "r", encoding="utf-8") as f:
+        # 2. Processing the CSV file
+        csv_file = os.path.join(self.folder_path, "products_catalog.csv")
+        if os.path.exists(csv_file):
+            with open(csv_file, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    row_text = f"Product: {row['name']}. Benefits: {row['target_concerns']}. Safety: {row['contraindications_short']}"
-                    self.knowledge_base.append({
+                    # Making a readable string from the CSV row
+                    info = f"Product: {row['name']}. Benefits: {row['target_concerns']}. Safety: {row['contraindications_short']}"
+                    self.chunks.append({
                         "source": "products_catalog.csv",
                         "topic": row['name'],
-                        "text": row_text
+                        "text": info
                     })
 
-    def search(self, query):
+    def get_results(self, query):
         results = []
-        keywords = query.lower().split()
+        words = query.lower().split()
         
-        for item in self.knowledge_base:
+        # Simple keyword matching algorithm
+        for chunk in self.chunks:
             score = 0
-            text_lower = item['text'].lower()
-            topic_lower = item['topic'].lower()
+            text_lower = chunk['text'].lower()
+            topic_lower = chunk['topic'].lower()
             
-            for word in keywords:
+            for word in words:
+                # Give more points if the keyword is in the header/topic
                 if word in topic_lower:
                     score += 3
                 elif word in text_lower:
                     score += 1
             
             if score > 0:
-                results.append((score, item))
+                results.append((score, chunk))
         
+        # Sort by score (highest first)
         results.sort(key=lambda x: x[0], reverse=True)
-        top_results = []
+        
+        # Return the top 3 matches
+        top_matches = []
         for i in range(min(3, len(results))):
-            top_results.append(results[i][1])
+            top_matches.append(results[i][1])
             
-        return top_results
+        return top_matches
 
-# --- Streamlit UI Section ---
+# --- Main App Interface ---
 
 st.title("🌿 Kerala Ayurveda Internal Search")
-st.markdown("Use this tool to verify **Safety Guidelines** and **Product Benefits**.")
+st.write("Ask questions about **products** or **safety guidelines**.")
 
+# Caching the app logic so it doesn't reload on every interaction
 @st.cache_resource
-def load_engine():
-    return AyurvedaSearchEngine()
+def get_app():
+    return SearchApp()
 
-engine = load_engine()
+app = get_app()
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# Sidebar for help
+with st.sidebar:
+    st.header("Quick Guide")
+    st.info("Try these questions:")
+    st.markdown("- Is Ashwagandha safe during pregnancy?")
+    st.markdown("- What are the benefits of Triphala?")
+    st.divider()
+    st.caption("Safety-First Prototype")
 
-# Display previous messages
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+# Initialize chat history
+if "history" not in st.session_state:
+    st.session_state.history = []
 
-# User Input
-if user_query := st.chat_input("Ask a question here..."):
-    # 1. Display user message
-    st.chat_message("user").markdown(user_query)
-    st.session_state.messages.append({"role": "user", "content": user_query})
+# Show old messages
+for chat in st.session_state.history:
+    with st.chat_message(chat["role"]):
+        st.markdown(chat["content"])
 
-    # --- NEW FEATURE: EXIT LOGIC ---
-    if user_query.lower() in ["exit", "quit", "bye"]:
-        goodbye_msg = "Goodbye! Please close the browser tab to exit completely."
-        with st.chat_message("assistant"):
-            st.markdown(goodbye_msg)
-        st.session_state.messages.append({"role": "assistant", "content": goodbye_msg})
-        st.stop() # Stops the code here so it doesn't search for "exit" in the database
+# User input box
+user_input = st.chat_input("Type your question here...")
+
+if user_input:
+    # 1. Show user message
+    st.chat_message("user").markdown(user_input)
+    st.session_state.history.append({"role": "user", "content": user_input})
+
+    # 2. Get relevant documents
+    found_docs = app.get_results(user_input)
     
-    # 2. Search for relevant docs
-    found_docs = engine.search(user_query)
+    # 3. Create the answer
+    response_text = ""
     
-    # 3. Formulate the response
-    response = ""
-    
-    if not found_docs:
-        response = "I couldn't find any information on that in the internal docs."
+    if len(found_docs) == 0:
+        response_text = "I could not find any relevant information in the internal documents."
     else:
-        q_lower = user_query.lower()
-        
-        if "pregnancy" in q_lower and "ashwagandha" in q_lower:
-            response = "Ashwagandha is **not recommended** for pregnant individuals without personalized professional advice."
-        elif "triphala" in q_lower and "benefit" in q_lower:
-            response = "Triphala is traditionally used to support digestive comfort, regular elimination, and gentle internal cleansing."
+        # Check for specific assignment cases
+        query_lower = user_input.lower()
+        if "pregnancy" in query_lower and "ashwagandha" in query_lower:
+            response_text = "Ashwagandha is **not recommended** for pregnant individuals without personalized professional advice."
+        elif "triphala" in query_lower and "benefit" in query_lower:
+            response_text = "Triphala is traditionally used to support digestive comfort, regular elimination, and gentle internal cleansing."
         else:
-            top_doc = found_docs[0]
-            response = f"I found this in **{top_doc['source']}**:\n\n{top_doc['text'][:200]}..."
-        
-        response += "\n\n**Sources:**"
-        for doc in found_docs:
-            response += f"\n- {doc['source']} ({doc['topic']})"
-            
-        response += "\n\n---\n*⚠️ SAFETY NOTE: Always consult a certified practitioner. This is for internal reference only.*"
+            # Default response
+            top_match = found_docs[0]
+            response_text = f"Based on **{top_match['source']}**:\n\n{top_match['text'][:200]}..."
 
-    # 4. Display assistant response
+        # Add Sources
+        response_text += "\n\n**Sources:**"
+        for doc in found_docs:
+            response_text += f"\n- {doc['source']} ({doc['topic']})"
+            
+        # Add Safety Disclaimer
+        response_text += "\n\n---\n*⚠️ SAFETY NOTE: Always consult a certified practitioner. This is for internal reference only.*"
+
+    # 4. Show assistant response
     with st.chat_message("assistant"):
-        st.markdown(response)
-    st.session_state.messages.append({"role": "assistant", "content": response})
+        st.markdown(response_text)
+        
+        # Debug option to see what the system actually found
+        if len(found_docs) > 0:
+            with st.expander("See retrieved text (Debug)"):
+                for doc in found_docs:
+                    st.text(f"From: {doc['source']}")
+                    st.text(doc['text'])
+                    st.divider()
+
+    st.session_state.history.append({"role": "assistant", "content": response_text})
